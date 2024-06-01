@@ -92,7 +92,7 @@ class PositionalEncodingBlock(nn.Module):
 
     def forward(self, x):
         # add positional encoding to the input which is ouput of the embedding layer
-        x = x + self.positional_encoding[:, : x.size(1)].requires_grad_(False)
+        x = x + self.positional_encoding[:, : x.size(1), :].requires_grad_(False)
         return x
 
 
@@ -139,8 +139,9 @@ class MaskedMultiHeadAttentionBlock(nn.Module):
 
     def multihead_attention(self, q, k, v, mask, dropout):
         # multiply query and key vector (batch, head, seq , d_k) @ (batch , head, d_k, seq) = (batch, head, seq, seq)
+        d_k = q.shape[-1]
         qk = q @ k.transpose(-2, -1)
-        scaled_qk = qk / math.sqrt(self.d_k)
+        scaled_qk = qk / math.sqrt(d_k)
 
         # application of masking
         if mask is not None:
