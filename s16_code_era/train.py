@@ -203,24 +203,14 @@ def get_ds(config):
     return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
 
 
-def get_model(config, src_vocab_size, tgt_vocab_size):
-    # To be put in config later
-    d_model = 512
-    heads = 8
-    N = 6
-    d_ff = 2048
-    dropout_rate = 0.1
-    dim = 350
-
+def get_model(config, vocab_src_len, vocab_tgt_len):
     model = build_transformer(
-        d_model=d_model,
-        heads=heads,
-        d_ff=d_ff,
-        dropout=dropout_rate,
-        N=N,
-        dim=dim,
+        vocab_src_len,
+        vocab_tgt_len,
+        config["seq_len"],
+        config["seq_len"],
+        d_model=config["d_model"],
     )
-
     return model
 
 

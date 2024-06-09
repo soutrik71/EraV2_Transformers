@@ -1,12 +1,13 @@
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset
 
 
-class BillingualDataset(Dataset):
+class BilingualDataset(Dataset):
+
     def __init__(self, ds, tokenizer_src, tokenizer_tgt, src_lang, tgt_lang, seq_len):
         super().__init__()
         self.seq_len = seq_len
+
         self.ds = ds
         self.tokenizer_src = tokenizer_src
         self.tokenizer_tgt = tokenizer_tgt
@@ -27,22 +28,31 @@ class BillingualDataset(Dataset):
         return len(self.ds)
 
     def __getitem__(self, idx):
-        src_tgt_pair = self.ds[idx]
-        src_text = src_tgt_pair["translation"][self.src_lang]
-        tgt_text = src_tgt_pair["translation"][self.tgt_lang]
+        src_target_pair = self.ds[idx]
+        src_text = src_target_pair["translation"][self.src_lang]
+        tgt_text = src_target_pair["translation"][self.tgt_lang]
 
+        # Transform the text into tokens
         enc_input_tokens = self.tokenizer_src.encode(src_text).ids
         dec_input_tokens = self.tokenizer_tgt.encode(tgt_text).ids
 
-        enc_num_padding_tokens = self.seq_len - len(enc_input_tokens) - 2
+        # Add sos, eos and padding to each sentence
+        enc_num_padding_tokens = (
+            self.seq_len - len(enc_input_tokens) - 2
+        )  # We will add <s> and </s>
+        # We will only add <s>, and </s> only on the label
         dec_num_padding_tokens = self.seq_len - len(dec_input_tokens) - 1
-        # For encoding, we PAD both SOS and EOS. For decoding, we only pad SOS.
-        # THe model is required to predict EOS and stop on its own.
 
-        # Make sure that padding is not negative (ie the sentance is too long)
-        if enc_num_padding_tokens < 0 or dec_num_padding_tokens < 0:
-            raise ValueError("Sentence too long")
+        # Make sure the number of padding tokens is not negative. If it is, the sentence is too long - adjust the length
+        if enc_num_padding_tokens < 0:
+            enc_input_tokens = enc_input_tokens[: self.seq_len - 2]
+            enc_num_padding_tokens = 0
 
+        if dec_num_padding_tokens < 0:
+            dec_input_tokens = dec_input_tokens[: self.seq_len - 1]
+            dec_num_padding_tokens = 0
+
+        # Add <s> and </s> token
         encoder_input = torch.cat(
             [
                 self.sos_token,
@@ -55,6 +65,7 @@ class BillingualDataset(Dataset):
             dim=0,
         )
 
+        # Add only <s> token
         decoder_input = torch.cat(
             [
                 self.sos_token,
@@ -66,6 +77,7 @@ class BillingualDataset(Dataset):
             dim=0,
         )
 
+        # Add only </s> token
         label = torch.cat(
             [
                 torch.tensor(dec_input_tokens, dtype=torch.int64),
@@ -77,29 +89,29 @@ class BillingualDataset(Dataset):
             dim=0,
         )
 
+        # Double check the size of the tensors to make sure they are all seq_len long
         assert encoder_input.size(0) == self.seq_len
         assert decoder_input.size(0) == self.seq_len
         assert label.size(0) == self.seq_len
 
         return {
-            "encoder_input": encoder_input,
-            "decoder_input": decoder_input,
+            "encoder_input": encoder_input,  # (seq_len)
+            "decoder_input": decoder_input,  # (seq_len)
             "encoder_mask": (encoder_input != self.pad_token)
             .unsqueeze(0)
             .unsqueeze(0)
-            .int(),
-            # encoder mask: (1, 1, seq_len) -> Has 1 when there is text and 0 when there is pad (no text)
+            .int(),  # (1, 1, seq_len)
             "decoder_mask": (decoder_input != self.pad_token).unsqueeze(0).int()
-            & casual_mask(decoder_input.size(0)),
-            # (1, seq_len) and (1, seq_len, seq_len)
-            # Will get 0 for all pads. And 0 for earlier text.
-            "label": label,
+            & causal_mask(
+                decoder_input.size(0)
+            ),  # (1, seq_len) & (1, seq_len, seq_len),
+            "label": label,  # (seq_len)
             "src_text": src_text,
             "tgt_text": tgt_text,
         }
 
 
-def casual_mask(size):
-    mask = torch.triu(torch.ones((1, size, size)), diagonal=1).type(torch.int)
-    # This will get the upper traingle values
+def causal_mask(size):
+    # Creating a square matrix of dimensions 'size x size' filled with ones
+    mask = torch.triu(torch.ones(1, size, size), diagonal=1).type(torch.int)
     return mask == 0
