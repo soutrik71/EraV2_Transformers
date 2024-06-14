@@ -11,9 +11,8 @@ os.environ["TORCH_USE_CUDA_DSA"] = "1"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:12240"
 torch.backends.cudnn.benchmark = True
 
-
-torch.cuda.empty_cache()
 gc.collect()
+torch.cuda.empty_cache()
 torch.cuda.synchronize()
 
 
