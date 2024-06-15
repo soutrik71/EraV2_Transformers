@@ -106,7 +106,7 @@ class MultiHeadAttentionBlock(nn.Module):
 
         if mask is not None:
             # where mask is 0, we will replace the value with -1e9
-            scaled_qk.masked_fill_(mask == 0, -1e9)
+            scaled_qk.masked_fill_(mask == 0, -1e4)
 
         attention = torch.softmax(scaled_qk, dim=-1)
 
@@ -155,7 +155,7 @@ class MultiHeadAttentionBlock(nn.Module):
 class LayerNormalization(nn.Module):
     """This class is responsible for creating the layer normalization block"""
 
-    def __init__(self, features: int, eps: float = 1e-6):
+    def __init__(self, features: int, eps: float = 1e-4):
         super(LayerNormalization, self).__init__()
         self.features = features
         self.eps = eps

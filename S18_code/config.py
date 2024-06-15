@@ -21,6 +21,8 @@ def get_config():
         "datasource": "opus_books",
         "model_basename": "transformer_model",
         "split_ratio": 0.9,
+        "shuffle": True,
+        "num_workers": 4,
     }
 
 

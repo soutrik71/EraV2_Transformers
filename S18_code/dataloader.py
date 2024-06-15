@@ -127,6 +127,7 @@ def get_ds(ds_raw, config):
     val_ds_size = len(ds_raw) - train_ds_size
     train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
 
+    print("Creating the tokenized-dataset")
     train_ds = BilingualDataset(
         train_ds_raw,
         tokenizer_src,
@@ -142,10 +143,16 @@ def get_ds(ds_raw, config):
         config["tgt_lang"],
     )
 
+    print(
+        f"Dataloaders created with {len(train_ds)} training and {len(val_ds)} validation samples"
+    )
     train_dataloader = DataLoader(
         train_ds,
         batch_size=config["batch_size"],
         collate_fn=functools.partial(collate_fn, tokenizer_tgt=tokenizer_tgt),
+        shuffle=config["shuffle"],
+        num_workers=config["num_workers"],
+        pin_memory=True,
     )
     val_dataloader = DataLoader(
         val_ds,
