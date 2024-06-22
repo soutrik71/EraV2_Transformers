@@ -167,6 +167,81 @@ def run_training_loop_opt(
     return epoch_loss, global_step
 
 
+def run_training_loop_opt_clip(
+    model,
+    train_dataloader,
+    optimizer,
+    loss_fn,
+    device,
+    global_step,
+    scaler,
+    scheduler=None,
+):
+    """Training loop for the model with optimizations"""
+
+    model.train()
+    train_batch_writer = tqdm(
+        train_dataloader, total=len(train_dataloader), desc="Training"
+    )
+    total_loss = 0.0
+    num_batches = len(train_dataloader)
+
+    for batch in train_batch_writer:
+        encoder_input = batch["encoder_input"].to(device, non_blocking=True)
+        decoder_input = batch["decoder_input"].to(device, non_blocking=True)
+        encoder_mask = batch["encoder_mask"].to(device, non_blocking=True)
+        decoder_mask = batch["decoder_mask"].to(device, non_blocking=True)
+        label = batch["label"].to(device, non_blocking=True)
+
+        optimizer.zero_grad(set_to_none=True)  # Clear gradients before forward pass
+
+        # Forward pass within autocast context to enable mixed precision training
+        device_type = "cuda" if torch.cuda.is_available() else "cpu"
+        with torch.autocast(device_type=device_type, dtype=torch.float16):
+            encoder_output = model.encode(encoder_input, encoder_mask)
+            decoder_output = model.decode(
+                encoder_output, encoder_mask, decoder_input, decoder_mask
+            )
+            projection_output = model.project(decoder_output)
+            loss = loss_fn(projection_output, label)
+
+        # Scale the loss value to prevent underflow/overflow in mixed precision training
+        scaler.scale(loss).backward()
+
+        # Unscales the gradients of optimizer's assigned params in-place
+        scaler.unscale_(optimizer)
+
+        # Gradient clipping to prevent exploding gradients
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        # Update parameters based on the gradients
+        scaler.step(optimizer)
+
+        # Update the scale for next iteration
+        scaler.update()
+
+        total_loss += loss.item()
+
+        # Update progress bar with current batch loss
+        train_batch_writer.set_postfix({"loss": f"{loss.item():.3f}"})
+
+        global_step += 1
+
+        # Adjust learning rate if using scheduler
+        if scheduler is not None:
+            scheduler.step()
+
+    # Compute average training loss for the epoch
+    epoch_loss = total_loss / num_batches
+    train_batch_writer.set_postfix({"Epoch Training loss": f"{epoch_loss:.3f}"})
+
+    # Close the tqdm progress bar explicitly
+    train_batch_writer.close()
+
+    return epoch_loss, global_step
+
+
 def run_validation_loop(model, val_dataloader, loss_fn, device):
     """Validation loop for the model"""
     # Setting model to evaluation mode
@@ -204,6 +279,10 @@ def run_validation_loop(model, val_dataloader, loss_fn, device):
     # average validation loss
     epoch_loss = total_loss / num_batches
     val_batch_writer.set_postfix({"Epoch Validation loss": f"{epoch_loss:6.3f}"})
+
+    # Close the tqdm progress bar explicitly
+    val_batch_writer.close()
+
     return epoch_loss
 
 
