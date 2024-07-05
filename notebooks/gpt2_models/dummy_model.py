@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
 from transformers import GPT2LMHeadModel
+import math
 
 
 @dataclass
@@ -23,6 +24,7 @@ class GPTConfig:
     n_layer: int = 12  # number of layers
     n_head: int = 12  # number of heads
     n_embd: int = 768  # embedding dimension
+    flash_attention: bool = True  # whether to use flash attention
 
 
 class CausalSelfAttention(nn.Module):
@@ -38,6 +40,18 @@ class CausalSelfAttention(nn.Module):
         # regularization
         self.n_head = config.n_head
         self.n_embd = config.n_embd
+        # flash attention if applicable else normal attention
+        self.flash = (
+            hasattr(torch.nn.functional, "scaled_dot_product_attention")
+            and config.flash_attention
+        )
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones(config.block_size, config.block_size)).view(
+                1, 1, config.block_size, config.block_size
+            ),
+        )
+        print(f"Flash attention: {self.flash}")
 
     def forward(self, x):
         B, T, C = (
@@ -57,7 +71,17 @@ class CausalSelfAttention(nn.Module):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(
             1, 2
         )  # (B, nh, T, hs)
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)  # flash attention
+
+        if not self.flash:
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+            att = F.softmax(att, dim=-1)
+            y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        else:
+            y = F.scaled_dot_product_attention(
+                q, k, v, is_causal=True
+            )  # flash attention
+
         y = (
             y.transpose(1, 2).contiguous().view(B, T, C)
         )  # re-assemble all head outputs side by side
